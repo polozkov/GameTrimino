@@ -1,12 +1,12 @@
 <html>
-    
+
 <head>
     <meta charset="utf-8">
-    <title> 31 октябя Игра "миграция" </title>    
+    <title> GameTrimino</title>
 </head>
-    
+
 <body>
-    
+
     <style type="text/css">
         html,
         body {
@@ -20,20 +20,2216 @@
     </style>
 
     <canvas id='id_canvas'></canvas>
-    
-    <script language="JavaScript" src="./js_01_pair.js"></script>
-    <script language="JavaScript" src="./js_02_stat.js"></script> 
-    <script language="JavaScript" src="./js_03_rule.js"></script>
-	<script language="JavaScript" src="./js_04_AI.js"></script>
-    
-    <script language="JavaScript" src="./js_05_draw.js"></script>
-    <script language="JavaScript" src="./js_06_area.js"></script>
-    <script language="JavaScript" src="./js_07_press.js"></script>
-    
-    <script language="JavaScript" src="./js_08_show.js"></script>
-    <script language="JavaScript" src="./js_09_animate.js"></script>
-    <script language="JavaScript" src="./js_10_event.js"></script>
-    <script language="JavaScript" src="./js_11_main.js"></script>
+
+    <script language="JavaScript">
+        //холст рисования всего для нашей игры
+        var main_canvas = window.document.getElementById('id_canvas');
+        //общий контекст для рисования
+        var main_ctx = main_canvas.getContext('2d');
+
+        //пара координат (xy), пара точек (ab)
+        var PAIR = {
+            //создание точек и областей
+            CREATE: {
+                //ТОЧКА по 2 координатам
+                f_xy: function(x, y) {
+                    'use strict';
+                    return ({
+                        x: x,
+                        y: y
+                    });
+                },
+
+                //ТОЧКА по 2 одинаковым координатам
+                f_xy_same: function(x_and_y) {
+                    'use strict';
+                    return PAIR.CREATE.f_xy(x_and_y, x_and_y);
+                },
+
+                //переводит массив массивов длины 2 в массив точек
+                f_xy_array: function(arr_arr_01) {
+                    'use strict';
+                    var //длина массива точек = длине данного массива
+                        len = arr_arr_01.length,
+                        //итоговый массив точек (изначально пуст)
+                        arr_of_points = [],
+                        i;
+                    //смотри точка за точкой
+                    for (i = 0; i < len; i += 1) {
+                        //проталкивай текущую точку в конец массива
+                        arr_of_points.push(
+                            PAIR.CREATE.f_xy(
+                                arr_arr_01[i][0], //в начале х - координта
+                                arr_arr_01[i][1] //далее у - координата
+                            )
+                        );
+                    }
+
+                    return arr_of_points;
+                },
+
+                //ОБЛАСТЬ по 4 координатам
+                f_ab_4: function(x1, y1, x2, y2) {
+                    'use strict';
+                    return ({
+                        a: PAIR.CREATE.f_xy(x1, y1),
+                        b: PAIR.CREATE.f_xy(x2, y2)
+                    });
+                },
+
+                //ОБЛАСТЬ по углу и размерам
+                f_ab_corner: function(x, y, w, h) {
+                    'use strict';
+                    return PAIR.CREATE.f_ab_4(x, y, x + w, y + h);
+                },
+
+                //ОБЛАСТЬ по углу и размерам квадрата
+                f_ab_sq: function(x, y, sq_side) {
+                    'use strict';
+                    return PAIR.CREATE.f_ab_4(x, y, x + sq_side, y + sq_side);
+                },
+
+                //ОБЛАСТЬ размера 1 по ЛЕВОМУ ВЕРХНЕМУ углу
+                f_ab_mono: function(x1, y1) {
+                    'use strict';
+                    return PAIR.CREATE.f_ab_4(x1, y1, x1 + 1, y1 + 1);
+                },
+
+                //ОБЛАСТЬ по 2 точкам
+                f_ab_2: function(a, b) {
+                    'use strict';
+                    return {
+                        a: a,
+                        b: b
+                    };
+                },
+
+                //ОБЛАСТЬ от начала координат
+                f_ab_00: function(a) {
+                    'use strict';
+                    return PAIR.CREATE.f_ab_4(0, 0, a.x, a.y);
+                }
+            },
+
+            //сложение, умножение, размер области, центр области
+            MATH: {
+                //складывает координаты двух точек
+                f_add: function(p1, p2) {
+                    'use strict';
+                    return PAIR.CREATE.f_xy(p1.x + p2.x, p1.y + p2.y);
+                },
+
+                //сжать во стролько раз по 2 осям (разделить одно на другое)
+                f_compress: function(p, scale_xy) {
+                    'use strict';
+                    return PAIR.CREATE.f_xy(
+                        p.x / scale_xy.x,
+                        p.y / scale_xy.y
+                    );
+                },
+
+                //умножает координаты двух точек
+                f_point_mult: function(p1, p2) {
+                    'use strict';
+                    return PAIR.CREATE.f_xy(p1.x * p2.x, p1.y * p2.y);
+                },
+
+                //растяжение по 2 осям (optional: в одинаковое число раз) 
+                f_same_mult: function(p, scale_xy_same) {
+                    'use strict';
+                    return PAIR.CREATE.f_xy(
+                        p.x * scale_xy_same,
+                        p.y * scale_xy_same
+                    );
+                },
+
+                //возвращает центр области
+                f_center_of_area: function(ab) {
+                    'use strict';
+                    return PAIR.CREATE.f_xy((ab.b.x + ab.a.x) / 2, (ab.b.y + ab.a.y) / 2);
+                },
+
+                //получает разность двух точек (размеры области)
+                f_dxy: function(ab) {
+                    'use strict';
+                    return PAIR.CREATE.f_xy(ab.b.x - ab.a.x, ab.b.y - ab.a.y);
+                },
+
+                //минимальный из размеров области (разности координат обеих точек)
+                f_dxy_min: function(ab) {
+                    'use strict';
+                    return Math.min(ab.b.x - ab.a.x, ab.b.y - ab.a.y);
+                },
+
+                //максимальный из размеров области (разности координат обеих точек)
+                f_dxy_max: function(ab) {
+                    'use strict';
+                    return Math.max(ab.b.x - ab.a.x, ab.b.y - ab.a.y);
+                },
+
+                //является ли область вертикальной? (ширина меньше высоты)
+                f_is_vert: function(ab) {
+                    'use strict';
+                    var sizes = PAIR.MATH.f_dxy(ab);
+                    return (sizes.x < sizes.y);
+                }
+            },
+
+            //обрезанная область (со всех 4 сторон)
+            CUT: {
+                //обрезает область на соответствующее число
+                f_URDL: function(ab, U, R, D, L) {
+                    'use strict';
+                    return PAIR.CREATE.f_ab_4(
+                        ab.a.x + L,
+                        ab.a.y + U,
+                        ab.b.x - R,
+                        ab.b.y - D
+                    );
+                },
+
+                //обрезает w: слева и справа, h: сверху и снизу
+                f_wh: function(ab, w, h) {
+                    'use strict';
+                    return PAIR.CUT.f_URDL(ab, h, w, h, w);
+                },
+
+                //обрезает с каждой стороны зоны одно и тоже число пискелей
+                f_same: function(ab, cut) {
+                    'use strict';
+                    return PAIR.CUT.f_URDL(ab, cut, cut, cut, cut);
+                },
+
+                //обрезает до квадрата
+                f_cut_making_square: function(ab) {
+                    'use strict';
+                    var side_max = PAIR.MATH.f_dxy_max(ab),
+                        side_min = PAIR.MATH.f_dxy_min(ab),
+
+                        //на сколько надо срезать с 2 сторон по длинной оси
+                        cut = (side_max - side_min) / 2,
+                        d_01 = [
+                            [0, cut],
+                            [cut, 0]
+                        ],
+                        //вертикальный (0) или горизонтальный (1) срез
+                        d = d_01[PAIR.MATH.f_is_vert(ab) ? 0 : 1];
+
+                    return PAIR.f_cut_wh(ab, d[0], d[1]);
+                },
+
+                //срезает, оставляя после среза такую часть исходных размеров 
+                f_cut_part_wh: function(ab, part_of_total_xy) {
+                    'use strict';
+                    var dxy = PAIR.MATH.f_dxy(ab),
+                        w = (1 - part_of_total_xy.x) / 2,
+                        h = (1 - part_of_total_xy.y) / 2;
+                    return PAIR.CUT.f_wh(ab, dxy.x * w, dxy.y * h);
+                }
+            },
+
+            //принадлежность точки интервалу и области
+            BELONG: {
+                //принадлежит ли точка интервалу [min..max]
+                f_xy: function(n, min_border, max_border) {
+                    'use strict';
+                    return ((min_border <= n) && (n <= max_border));
+                },
+
+                //принадлежит ли точка области (включая границы)
+                f_ab: function(ab, x, y) {
+                    'use strict';
+                    return (
+                        PAIR.BELONG.f_xy(x, ab.a.x, ab.b.x) &&
+                        PAIR.BELONG.f_xy(y, ab.a.y, ab.b.y)
+                    );
+                }
+            },
+
+            //получаем область по сетке из внешней области
+            GRID: {
+                //area_pixels - область пикселей; область на прямоугольном поле
+                f_area: function(area_pixels, area_grid, size_grid) {
+                    'use strict';
+                    var //ширина и высота всей сетки
+                        wh_total = PAIR.MATH.f_dxy(area_pixels),
+                        //ширина и высота искомой ячейки
+                        wh = PAIR.MATH.f_compress(wh_total, size_grid);
+
+                    //итоговая область
+                    return PAIR.CREATE.f_ab_4(
+                        area_pixels.a.x + wh.x * area_grid.a.x,
+                        area_pixels.a.y + wh.y * area_grid.a.y,
+                        area_pixels.a.x + wh.x * area_grid.b.x,
+                        area_pixels.a.y + wh.y * area_grid.b.y
+                    );
+                },
+
+                //area_pixels - область пикселей, одна клетка на квадратном поле
+                f_cell: function(board_pixels, coord_x, coord_y, cells_in_square) {
+                    'use strict';
+                    var //область одной ячейки на сетке
+                        monomino = PAIR.CREATE.f_ab_mono(coord_x, coord_y),
+                        //две стороны квадрата: одинаковые размеры сетки
+                        square_grid = PAIR.CREATE.f_xy_same(cells_in_square);
+
+                    return PAIR.GRID.f_area(board_pixels, monomino, square_grid);
+                },
+
+                //дана область с "nAll" строками, верни область 1 строки
+                f_row_in_column: function(area, nAll, nNow) {
+                    'use strict';
+                    var cell_now = PAIR.CREATE.f_ab_4(0, nNow, 1, nNow + 1),
+                        sizes = PAIR.CREATE.f_xy(1, nAll);
+                    return (PAIR.GRID.f_area(area, cell_now, sizes));
+                }
+            }
+        };
+
+        //(01-02)
+
+        //константы для игры
+        var STAT = {
+            //числовые константы + массивы (тримино, направления)
+            C: {
+                //сторона квадратнойго поля
+                N: 4,
+
+                //ячеек на квадратном поле
+                SQ: 16,
+
+                //число различных игровых фигур тримино
+                TRIM_N: 6,
+
+                //столько изначально шашек в запасе игроков
+                STORE: 12,
+
+                //тримино для конца игры
+                TRIMINO_GAME_OVER: 6,
+
+                //все тримино - это центр 0,0 и ДВЕ соседних клетки
+                ARR_TRIMINO: [
+                    //I вертикальная
+                    PAIR.CREATE.f_xy_array([
+                        [0, 0],
+                        [0, 1],
+                        [0, -1]
+                    ]),
+                    //I горизонтальная
+                    PAIR.CREATE.f_xy_array([
+                        [0, 0],
+                        [1, 0],
+                        [-1, 0]
+                    ]),
+
+                    //ВПРАВО-ВНИЗ, левый верхний уголок
+                    PAIR.CREATE.f_xy_array([
+                        [0, 0],
+                        [1, 0],
+                        [0, 1]
+                    ]),
+                    //ВЛЕВО-ВВЕРХ, правый нижний уголок
+                    PAIR.CREATE.f_xy_array([
+                        [0, 0],
+                        [-1, 0],
+                        [0, -1]
+                    ]),
+                    //ВЛЕВО-ВНИЗ, правый верхний уголок
+                    PAIR.CREATE.f_xy_array([
+                        [0, 0],
+                        [-1, 0],
+                        [0, 1]
+                    ]),
+                    //ВПРАВО-ВВЕРХ, левый нижний уголок
+                    PAIR.CREATE.f_xy_array([
+                        [0, 0],
+                        [1, 0],
+                        [0, -1]
+                    ]),
+
+                    //одна фигура (мономино) - конец игры
+                    PAIR.CREATE.f_xy_array([
+                        [0, 0],
+                        [0, 0],
+                        [0, 0]
+                    ])
+                ],
+
+                //направления вверх - вниз - вправо - влево
+                ARR_URDL: [
+                    PAIR.CREATE.f_xy(0, -1),
+                    PAIR.CREATE.f_xy(1, 0),
+                    PAIR.CREATE.f_xy(0, 1),
+                    PAIR.CREATE.f_xy(-1, 0)
+                ],
+
+                //пара значений (1,1)
+                P_11: PAIR.CREATE.f_xy(1, 1),
+                //пара значений (true, true)
+                P_YES_YES: PAIR.CREATE.f_xy(true, true),
+                //пара значений (false, false)
+                P_NO_NO: PAIR.CREATE.f_xy(false, false)
+            },
+
+            //случайные числа
+            F: { //случайное целое число, (например номер случайной фигуры)
+                f_random_number: function(border_of_integer_interval) {
+                    'use strict';
+                    //случайное целое число
+                    return Math.floor(Math.random() * border_of_integer_interval);
+                },
+
+                //номер случайной фигуры (из ШЕСТИ фигур тримино)
+                f_random_fig: function() {
+                    'use strict';
+                    return Math.floor(Math.random() * STAT.C.TRIM_N);
+                }
+            },
+
+            //время для анимации
+            TIME: {
+                //миллисекунд на анимацию одного хода
+                move: 600,
+
+                //миллисекунд на анимацию 1 кадра
+                step: 30
+            },
+
+            //надписи на панелях управления + преобразование массива в строку
+            TEXTS: {
+                str_comp_go: "Ходи!",
+                str_arr_game_mode: [
+                    "ПАСЬЯНС",
+                    "С ДРУГОМ",
+                    "глубина_1",
+                    "глубина_2"
+                ],
+                str_move_back: " < ",
+                str_move_forward: " > ",
+                str_new_fig: "",
+                str_new_game: "Новая игра",
+                str_score_move: "Ход №",
+
+                //доска как квадратная матрица
+                f_arr_to_str: function(get_board) {
+                    'use strict';
+                    var s = '', //
+                        i;
+                    for (i = 0; i < STAT.C.SQ; i += 1) {
+                        //припиши в конец ещё 1 (текущий) элемент
+                        s = s + get_board[i] + ', ';
+                        //конец строки? (остаток STAT.C.N - 1), новая строка
+                        if (((i + 1) % STAT.C.N) === 0) {
+                            s = s + '\n';
+                        }
+                    }
+                    return s;
+                },
+
+                //несколько досок одновременно (друг за другом через строку)
+                f_arr_of_arr_to_str: function(arr_of_arr) {
+                    'use strict';
+                    var s = '',
+                        i;
+
+                    for (i = 0; i < arr_of_arr.length; i += 1) {
+                        s = s + STAT.TEXTS.f_arr_to_str(arr_of_arr[i]) + '\n\n';
+                    }
+
+                    return s;
+                },
+
+                //переводит область в строку для вывода
+                f_area_to_string: function(ab) {
+                    'use strict';
+                    return ('(' + ab.a.x + '; ' + ab.a.y + '; ' + ab.b.x + '; ' + ab.b.y + ')');
+                }
+            }
+        };
+
+        //(02-03)
+
+        //правила для работы с позицией (ходы)
+        var RULE = {
+            //примитивы для 1 ячейки и поска полных рядов
+            CELL: {
+                //получи значение ячейки по координатам
+                f_get: function(get_board, x, y) {
+                    'use strict';
+                    return get_board[x + y * STAT.C.N];
+                },
+
+                //установи в ячейку новое значение
+                f_set: function(get_board, x, y, new_value) {
+                    'use strict';
+                    get_board[x + y * STAT.C.N] = new_value;
+                },
+
+                //в даном массиве ячейка свободна (пуста, то есть 0)
+                f_is_empty: function(get_board, x, y) {
+                    'use strict';
+                    return (RULE.CELL.f_get(get_board, x, y) === 0);
+                },
+
+                //в данном массиве ячейка занята (не свободна, не ноль)
+                f_is_occupied: function(get_board, x, y) {
+                    'use strict';
+                    return (RULE.CELL.f_get(get_board, x, y) !== 0);
+                },
+
+                //ДВА булевых массива: vert, hori (какие ряды заполнены)
+                f_rows: function(get_board) {
+                    'use strict';
+                    var i, ix, iy,
+                        vert = [],
+                        hori = [];
+                    //ищем полностью заполненные ряды
+                    for (i = 0; i < STAT.C.N; i += 1) {
+
+                        //проверь горизонталь: координату "Х"
+                        hori[i] = true;
+                        for (ix = 0; ix < STAT.C.N; ix += 1) {
+                            if (RULE.CELL.f_is_empty(get_board, ix, i)) {
+                                hori[i] = false;
+                            }
+                        }
+
+                        //проверь вертикаль: координату "У"
+                        vert[i] = true;
+                        for (iy = 0; iy < STAT.C.N; iy += 1) {
+                            if (RULE.CELL.f_is_empty(get_board, i, iy)) {
+                                vert[i] = false;
+                            }
+                        }
+                    }
+
+                    //верни оба массива
+                    return ({
+                        vert: vert,
+                        hori: hori
+                    });
+                }
+            },
+
+            //true,false функции (в том числа конец игры)
+            IS: {
+                //находится ли ячейка на поле? (не выходит ли за границу?)
+                f_on_board: function(nx, ny) {
+                    'use strict';
+                    return (
+                        (0 <= nx) && (nx < STAT.C.N) &&
+                        (0 <= ny) && (ny < STAT.C.N)
+                    );
+                },
+
+                //возможен ли ход? доска + параметры хода: три числа
+                f_move_legal: function(get_board, n_x, n_y, n_fig) {
+                    'use strict';
+                    var //само текущее тримино
+                        trimino = STAT.C.ARR_TRIMINO[n_fig],
+                        i, ix, iy;
+                    //проверь все ячйки фигуры
+                    for (i = trimino.length - 1; i >= 0; i -= 1) {
+                        //терущая рассматриваемая ячейка
+                        ix = trimino[i].x + n_x;
+                        iy = trimino[i].y + n_y;
+                        if (RULE.IS.f_on_board(ix, iy) === false) {
+                            return false; //фигура выходит за границы поля
+                        }
+                        if (RULE.CELL.f_is_occupied(get_board, ix, iy)) {
+                            return false; //клетка фигуры уже занятa
+                        }
+                    }
+                    return true; //все ячейки проверены: ход есть
+                },
+
+                //являются ли две доски идентичными ?
+                f_same_boards: function(board_a, board_b) {
+                    'use strict';
+                    var i;
+                    //проверь все ячейки обеих квадратных досок
+                    for (i = 0; i < STAT.C.SQ; i += 1) {
+                        if (board_a[i] !== board_b[i]) {
+                            return false;
+                        }
+                    }
+                    return true;
+                },
+
+                //игра закончена? (некуда ставить фигуру)
+                f_game_over_fig: function(get_board, fig) {
+                    'use strict';
+                    var ix, iy;
+
+                    for (ix = STAT.C.N - 1; ix >= 0; ix -= 1) {
+                        for (iy = STAT.C.N - 1; iy >= 0; iy -= 1) {
+                            //рассмотри ход в текущую клетку
+                            //проверь, ход возможен?
+                            if (RULE.IS.f_move_legal(get_board, ix, iy, fig)) {
+                                return false; //ход есть, игра не закончена
+                            }
+
+                        }
+                    }
+
+                    return true; //нет ни одного хода
+                },
+
+                //игра закончена? нет ни одной фигуры
+                f_game_over_total: function(get_board) {
+                    'use strict';
+                    var i;
+                    //рассмотри все фигуры тримино
+                    for (i = STAT.C.TRIM_N - 1; i >= 0; i -= 1) {
+                        //игра НЕ ЗАКОНЧЕНА для данно фигуры (проверка)
+                        if (!RULE.IS.f_game_over_fig(get_board, i)) {
+                            return false; //игра не закончена, не конец
+                        }
+                    }
+                    return true; //конец игры, нет ни одной свободной фигуры
+                },
+
+                //коне игры? в зависимости от режима (при пасьянсе и от фигуры)
+                f_game_over_mode: function(get_board, fig, game_mode) {
+                    'use strict';
+                    if (game_mode === 0) {
+                        return RULE.IS.f_game_over_fig(get_board, fig);
+                    } else {
+                        return RULE.IS.f_game_over_total(get_board);
+                    }
+                }
+            },
+
+            //части хода и сами ходы, ход "board_a" -> "board_b"
+            MOVE: {
+                //возвращает объект хода по всем его параметрам
+                f_create: function(n_x, n_y, n_fig) {
+                    'use strict';
+                    return ({
+                        n_x: n_x,
+                        n_y: n_y,
+                        n_fig: n_fig
+                    });
+                },
+
+                //легален ли ход (параметр "ход" - единый объект)
+                f_is_legal: function(get_board, m) {
+                    'use strict';
+                    return RULE.IS.f_move_legal(get_board, m.n_x, m.n_y, m.n_fig);
+                },
+
+                //добавь тримино игрока на доску, точка (0,0) фигуры в (n_x, n_y)
+                f_add_trinino: function(get_board, n_x, n_y, fig) {
+                    'use strict';
+                    var i = STAT.C.ARR_TRIMINO[fig].length;
+
+                    for (i = i - 1; i >= 0; i -= 1) {
+                        RULE.CELL.f_set(
+                            get_board,
+                            STAT.C.ARR_TRIMINO[fig][i].x + n_x,
+                            STAT.C.ARR_TRIMINO[fig][i].y + n_y,
+                            1
+                        );
+                    }
+                },
+
+                //верни копию доски с добавоенным тримино во время хода m
+                f_with_trimino: function(get_board, m) {
+                    'use strict';
+                    var new_board = get_board.slice();
+                    RULE.MOVE.f_add_trinino(new_board, m.n_x, m.n_y, m.n_fig);
+                    return new_board.slice();
+                },
+
+                //удали занятые ряды
+                f_delete_rows: function(get_board) {
+                    'use strict';
+                    var i, ix, iy,
+                        //полностью заполненные ряды, которые надо удалить
+                        all_rows = RULE.CELL.f_rows(get_board);
+
+                    //все горизонтальные и вертикальные ряды на квадратной доске
+                    for (i = 0; i < STAT.C.N; i += 1) {
+
+                        //удали горизонтальный ряд
+                        if (all_rows.hori[i]) {
+                            for (ix = 0; ix < STAT.C.N; ix += 1) {
+                                RULE.CELL.f_set(get_board, ix, i, 0);
+                            }
+                        }
+
+                        //удали вертикальный ряд
+                        if (all_rows.vert[i]) {
+                            for (iy = 0; iy < STAT.C.N; iy += 1) {
+                                RULE.CELL.f_set(get_board, i, iy, 0);
+                            }
+                        }
+                    }
+                },
+
+                //делает один ход, меняя полученный массив, (ход возможен)
+                f_do: function(get_board, get_move) {
+                    'use strict';
+                    //поставь тримино
+                    RULE.MOVE.f_add_trinino(
+                        get_board,
+                        get_move.n_x,
+                        get_move.n_y,
+                        get_move.n_fig
+                    );
+
+                    //удали полученные ряды
+                    RULE.MOVE.f_delete_rows(get_board);
+                },
+
+                //делает ход, не меняя исходный массив
+                f_return_copy: function(get_board, get_move) {
+                    'use strict';
+                    var copy_board = get_board.slice();
+                    RULE.MOVE.f_do(copy_board, get_move);
+                    return copy_board;
+                },
+
+                //ход между двумя позициями board_a, board_b
+                f_from_a_to_b: function(board_a, board_b, fig) {
+                    'use strict';
+                    var ix, iy, board_now, move_now;
+
+                    //пройдись по всем строкам и столбцам
+                    for (ix = STAT.C.N - 1; ix >= 0; ix -= 1) {
+                        for (iy = STAT.C.N - 1; iy >= 0; iy -= 1) {
+                            //рассмотри ход на текущую клетку
+                            move_now = RULE.MOVE.f_create(ix, iy, fig);
+
+                            //ход легален?
+                            if (RULE.MOVE.f_is_legal(board_a, move_now)) {
+                                //работай с копией доски
+                                board_now = board_a.slice();
+
+                                //делай ход на копии доски
+                                RULE.MOVE.f_do(board_now, move_now);
+
+                                //получаем нужную позицию
+                                if (RULE.IS.f_same_boards(board_now, board_b)) {
+                                    return move_now; //ход найден
+                                }
+                            } //конец условия легальости хода
+                        } //конец цикла iy
+                    } //конец цикла ix           
+                },
+
+                //получи ход из массива позиций и фигур (по умолчанию в последнюю позицию)
+                from_game_arr_get_last: function(get_arr, n_now) {
+                    'use strict';
+                    var b = n_now,
+                        a = b - 1,
+                        fig = get_arr[a].fig;
+                    return RULE.MOVE.f_from_a_to_b(get_arr[a].board, get_arr[b].board, fig);
+                }
+            },
+
+            //функиции, возвращающие матрицы досок
+            BOARD: {
+                //возвращает поле, заполненное нулями
+                f_return_empty: function() {
+                    'use strict';
+                    var i, out_arr = [];
+
+                    out_arr.length = STAT.C.SQ;
+
+                    for (i = 0; i < STAT.C.SQ; i += 1) {
+                        out_arr[i] = 0;
+                    }
+
+                    return (out_arr);
+                },
+
+                //сколько ячеек на поле свободно?
+                f_empty_amount: function(get_board) {
+                    'use strict';
+                    var i, amount = 0;
+                    //пройди все ячейки
+                    for (i = 0; i < STAT.C.SQ; i += 1) {
+                        if (get_board[i] === 0) {
+                            amount += 1;
+                        }
+                    }
+                    return amount;
+                },
+
+                //сколько съедено при ходе a до b (-3, если наоборот, фигура выставлена без еды)
+                f_food_amount_ab: function(board_a, board_b) {
+                    'use strict';
+                    var food_a = RULE.BOARD.f_empty_amount(board_a),
+                        food_b = RULE.BOARD.f_empty_amount(board_b);
+                    return (food_b - food_a);
+                },
+
+                //ячейки, куда можно поставить фигуру (булева матрица)
+                f_legal_cells: function(get_board, fig) {
+                    'use strict';
+                    var legal_arr = RULE.BOARD.f_return_empty(),
+                        ix,
+                        iy,
+                        move_now,
+                        is_ok;
+
+                    //пройдись по всем строкам и столбцам
+                    for (ix = STAT.C.N - 1; ix >= 0; ix -= 1) {
+                        for (iy = STAT.C.N - 1; iy >= 0; iy -= 1) {
+
+                            //рассмотри ход на текущую клетку
+                            move_now = RULE.MOVE.f_create(ix, iy, fig);
+
+                            //ход возможен (истина или ложь?)
+                            is_ok = RULE.MOVE.f_is_legal(get_board, move_now);
+
+                            //логическое значение пишем в булев массив
+                            RULE.CELL.f_set(legal_arr, ix, iy, is_ok);
+                        }
+                    }
+                    return legal_arr; //булева матрица с возможными ходами
+                },
+
+                //массив всех позиций, получаемые ходом фигуры
+                f_next_positions: function(get_board, fig) {
+                    'use strict';
+                    var ix, iy,
+                        move_now, //рассматриваемый ход (легален или невозможен)
+                        board_now, //одна из возможных позиций
+                        arr_next = []; //массив получаемых позиций
+
+                    //пройдись по всем строкам и столбцам
+                    for (ix = STAT.C.N - 1; ix >= 0; ix -= 1) {
+                        for (iy = STAT.C.N - 1; iy >= 0; iy -= 1) {
+
+                            //рассмотри ход на текущую клетку
+                            move_now = RULE.MOVE.f_create(ix, iy, fig);
+
+                            //ход легален?
+                            if (RULE.MOVE.f_is_legal(get_board, move_now)) {
+                                //копия доски
+                                board_now = get_board.slice();
+                                //ход с копией доски
+                                RULE.MOVE.f_do(board_now, move_now);
+                                //пополни массив легальных позиций
+                                arr_next.push(board_now);
+                            }
+                        }
+                    }
+                    return arr_next;
+                }
+            },
+
+            //случайно сгенерированная фигура
+            RANDOM: {
+                //возвращает случайную фигуру, которой можно делать ход
+                f_legal_fig: function(get_board) {
+                    'use strict';
+                    var i,
+                        //фигуры, которые можно выставлять на поле
+                        legal_arr = [];
+
+                    for (i = STAT.C.TRIM_N - 1; i >= 0; i -= 1) {
+                        if (!RULE.IS.f_game_over_fig(get_board, i)) {
+                            //пополни массив легальных фигур
+                            legal_arr.push(i);
+                        }
+                    }
+
+                    //нет ни одной легальной фигуры
+                    if (legal_arr.length === 0) {
+                        //выстави фигуру конца игры
+                        return STAT.C.TRIMINO_GAME_OVER;
+                    }
+
+                    //случайный элемента масива легальных фигур
+                    i = STAT.F.f_random_number(legal_arr.length);
+                    //сама случайная фигура
+                    return (legal_arr[i]);
+                },
+
+                //возвращает случайную фигуру (режим пасьянса или дуэли)
+                f_random_by_mode: function(get_board, game_mode) {
+                    'use strict';
+                    if (game_mode === 0) { //режим пасьянса
+                        return STAT.F.f_random_fig();
+                    } else {
+                        //если игра закончена, вернёт фигуру конца игры
+                        return RULE.RANDOM.f_legal_fig(get_board);
+                    }
+                }
+            },
+
+            WHO: {
+                //кто сейчас ходит по номеру хода: нечётный: 1, четный: 2
+                f_who_by_n: function(n) {
+                    'use strict';
+                    return (((n % 2) === 1) ? 1 : 2);
+                },
+
+                //кто сейчас ходит по длине массива: нечётный: 1, четный: 2
+                f_who_by_arr: function(get_array) {
+                    'use strict';
+                    return RULE.WHO.f_who_by_n(get_array.length);
+                },
+
+                //верни оппонента
+                f_opponent: function(who_now) {
+                    'use strict';
+                    return (3 - who_now);
+                }
+            }
+        };
+
+        //(03-04)
+
+        var AI = {
+            //основные функции для работы с AI для поиска лучшего хода
+            BASIS: {
+                //лучший массив позиций на глубине 1 (съешь как можно больше)
+                f_arr_depth_1: function(get_board, fig) {
+                    'use strict';
+                    var //массив из всех следующих позиций
+                        total_arr = RULE.BOARD.f_next_positions(get_board, fig),
+                        ///длина массива из всех позиций
+                        total_len = total_arr.length,
+                        //массив самых перспективных позиций
+                        best_arr = [],
+                        //каков лучший результат = число пустых полей? (перспективы)
+                        best_now,
+                        //текущий результат для каждой интерации цикла
+                        i_value,
+                        i;
+
+                    if (total_len === 0) {
+                        return [];
+                    }
+
+                    //первая позиция
+                    best_arr.push(total_arr[0].slice());
+                    //первый результат (пока он лучший, так как единственный)
+                    best_now = RULE.BOARD.f_empty_amount(total_arr[0]);
+
+                    //цикл с 1, нулевая позиция записана
+                    for (i = 1; i < total_len; i += 1) {
+                        //текущий результат
+                        i_value = RULE.BOARD.f_empty_amount(total_arr[i]);
+
+                        //такая же перспективная позиция
+                        if (i_value === best_now) {
+                            best_arr.push(total_arr[i].slice());
+                        } else if (i_value > best_now) {
+                            //пустых полей больше -> ещё перспективней
+                            //обнови лучший результат
+                            best_now = i_value;
+                            //старые позиции уже не перспективны
+                            best_arr = [];
+                            //первая перспективная
+                            best_arr.push(total_arr[i].slice());
+                        }
+                    }
+
+                    return best_arr;
+                },
+
+                //НЕ КОНЕЦ ИГРЫ, сколько пустых клеток после лучшего хода фигуры?
+                f_best_empty_amount: function(get_board, fig) {
+                    'use strict';
+                    var //самые перспективные позиции
+                        arr_best = AI.BASIS.f_arr_depth_1(get_board, fig);
+                    //все позиции одинаково перспективны, верни число пустых клеток
+                    return RULE.BOARD.f_empty_amount(arr_best[0]);
+                },
+
+                //среднее съедание при равномерном выпадении ВЫСТАВЛЯЕМЫХ фигур
+                f_average_eating: function(get_board, is_duel) {
+                    'use strict';
+                    var //сколько было пустых клеток до хода
+                        n_empty_was = RULE.BOARD.f_empty_amount(get_board),
+                        //сумма съеденного для кождого тримино
+                        value_sum = 0,
+                        //сколько разных тримино можно ВЫСТАВЛЯТЬ (для них есть место)
+                        n_legal_figures = STAT.C.TRIM_N,
+                        i;
+
+                    //смотри все виды тримино
+                    for (i = STAT.C.TRIM_N - 1; i >= 0; i -= 1) {
+                        //конец игры для рассматриваемой фигуры в цикле
+                        if (RULE.IS.f_game_over_fig(get_board, i)) {
+                            //доступных фигур будет на 1 меньше
+                            n_legal_figures -= 1;
+                        } else {
+                            //столько пустых полей после лучшего хода 
+                            value_sum += AI.BASIS.f_best_empty_amount(get_board, i);
+                            //сколько съели этой фигурой (разность пустых до и после хода)
+                            value_sum -= n_empty_was;
+                        }
+                    }
+
+                    if (n_legal_figures === 0) { //если нет ни одного хода
+                        return 0; //то съесть ничего не сможешь
+                    }
+
+                    //во время пасьянса считай ВСЕ фигуры
+                    if (!is_duel) {
+                        n_legal_figures = STAT.C.TRIM_N;
+                    }
+
+                    //ешь столько в среднем на 1 фигуру
+                    return (value_sum / n_legal_figures);
+                },
+
+                //игра не закончена, глубина 2: лучшие позиции
+                f_arr_depth_2: function(get_board, fig, is_duel) {
+                    'use strict';
+                    var //перспективные позиции с лучшим первым ходом
+                        look_boards = AI.BASIS.f_arr_depth_1(get_board, fig),
+                        //сколько перспективных позиций?
+                        look_n = look_boards.length,
+
+                        best_now, //лучший результат
+                        best_arr = [], //массив лучших позиций
+                        i_value_now, //текущий результат
+                        i;
+
+                    //начни с позиции номер 0, она точно существует
+                    best_arr.push(look_boards[0]);
+                    //с этой переменной будем сравнивать лучшие результаты
+                    best_now = AI.BASIS.f_average_eating(look_boards[0]);
+
+                    //все перспективные позиции надо просмотреть
+                    for (i = 1; i < look_n; i += 1) {
+                        //текущий результат
+                        i_value_now = AI.BASIS.f_average_eating(look_boards[i]);
+
+                        //такая же перспективная позиция
+                        if (i_value_now === best_now) {
+                            best_arr.push(look_boards[i].slice());
+                        } else if ((i_value_now < best_now) === is_duel) {
+                            //во время дуэли старайся, чтобы i_value_now ...
+                            //... было минимальным, при ПАСЬЯНСЕ - наоборот
+                            best_now = i_value_now;
+                            //обнови лучший результат
+                            best_arr = [];
+                            //старые позиции уже не перспективны
+                            //первая и единственная перспективная
+                            best_arr.push(look_boards[i].slice());
+                        }
+                    }
+                    //массив лучших позиций на глубине 2
+                    return (best_arr);
+                }
+            },
+
+            //функции, возвращающие лучший ход и лучшую позицию
+            BEST: {
+                //игра не закончена: лучшая следующая позиция
+                f_parametrs: function(get_board, fig, is_duel, is_deep) {
+                    'use strict';
+                    //во время ДУЭЛИ смотри на глубину 2 или 1
+                    if (is_duel) {
+                        //смотри глубоко, это дуэль, а не пасьянс
+                        if (is_deep) {
+                            return (AI.BASIS.f_arr_depth_2(get_board, fig, true));
+                        } else {
+                            //на глубине 1 верни случайную лучшую позицию
+                            return (AI.BASIS.f_arr_depth_1(get_board, fig));
+                        }
+                    } else { //пасьянс компьютер играет всегда сильно (на глубине 2)
+                        return (AI.BASIS.f_arr_depth_2(get_board, fig, false));
+                    }
+                },
+
+                //лучшая позиция: режимы игры: 0 - пасьянс, 1..2 - слабый, 3 - сильный
+                f_mode: function(get_board, fig, game_mode) {
+                    'use strict';
+                    var //массив лучших позиции
+                        best = [],
+                        //масиив для 4 режимов, номера 1,2 ИДЕНТИЧНЫ
+                        bool_03 = [
+                            [false, true], //пасьянс
+                            [true, false], //слабо (вынуждает ход при игре с другом)
+                            [true, false], //слабо (компьютер играет сам)
+                            [true, true] //сильно
+                        ],
+                        b_01 = bool_03[game_mode];
+
+                    //лучшие позиции для данного режима 
+                    best = AI.BEST.f_parametrs(get_board, fig, b_01[0], b_01[1]);
+                    //случайная копия одной из лучших позиций
+                    return (best[STAT.F.f_random_number(best.length)].slice());
+                }
+            },
+
+            //объединение доски и хода в запись
+            COMBO: {
+                //тип игры запись как в Паскале: позиция и фигура
+                f_game_record_create: function(get_board, fig) {
+                    'use strict';
+                    return {
+                        board: get_board.slice(),
+                        fig: fig
+                    };
+                },
+
+                //запись: начальная (пустая) доска и случайная фигура
+                f_game_record_empty: function() {
+                    'use strict';
+                    return {
+                        board: RULE.BOARD.f_return_empty(),
+                        fig: STAT.F.f_random_fig()
+                    };
+                }
+            }
+        };
+
+        //(04-05)
+
+        //графические примитивы и настройки контекста рисования
+        var DRAW = {
+
+            //настройки пера и кисти для всех контекстов
+            CTX: {
+                //контекст для рисования заднего фона
+                back_ground: ["rgba(200, 200, 200, 1)", "rgba(255, 0, 0, 1)", 1],
+
+                //контекст для рисования панели
+                PANEL: {
+                    //контекст для рисования сетки панели
+                    grid: ["rgba(196, 255, 196, 1)", "rgba(0, 0, 0, 1)", 1],
+
+                    //выбранный режим игры
+                    selected_game_mode: ["rgba(100, 255, 100, 1)", "rgba(0, 0, 0, 1)", 1]
+                },
+
+                //контекст для рисования доски
+                BOARD: {
+                    //контекст для рисования полей доски
+                    cells: ["rgba(235, 255, 235, 1)", "rgba(0, 0, 0, 1)", 1],
+
+                    //задний фон доски
+                    back: ["rgba(50, 150, 50, 1)", "rgba(0, 0, 0, 1)", 1],
+
+                    //контекст для мячей на поле: все одного цвета без обводки
+                    ball: ["rgba(10, 0, 10, 1)", "rgba(10, 0, 10, 1)", 0]
+                },
+
+                //дассивы для контекстов, специальных для каждого игрока
+                ARR: {
+                    //новая фигура тримино
+                    new_fig: [undefined,
+                        ["rgba(220, 0, 0, 1)", "rgba(0, 0, 0, 1)", 0],
+                        ["rgba(0, 0, 220, 1)", "rgba(0, 0, 0, 1)", 0]
+                    ],
+
+                    //подсветка последего хода
+                    move_last: [undefined,
+                        ["rgba(255, 0, 0, 0.15)", "rgba(0, 0, 0, 1)", 0],
+                        ["rgba(0, 0, 255, 0.15)", "rgba(0, 0, 0, 1)", 0]
+                    ],
+
+                    //отмечаем ходы на доске (подсказки: маленькие фигуры тримино)
+                    moves: [undefined,
+                        ["rgba(220, 0, 0, 1)", "rgba(0, 0, 0, 1)", 0],
+                        ["rgba(0, 0, 220, 1)", "rgba(0, 0, 0, 1)", 0]
+                    ],
+
+                    //отмечаем запасы обоих игроков на панели (счёт)
+                    score: [undefined,
+                        ["rgba(255, 120, 120, 1)", "rgba(0, 0, 0, 1)", 1],
+                        ["rgba(120, 120, 255, 1)", "rgba(0, 0, 0, 1)", 1]
+                    ]
+                }
+            },
+
+            //функции для работы с размерами и контекстом
+            F: {
+                //оба размера холста
+                f_wh: function() {
+                    'use strict';
+                    return PAIR.CREATE.f_xy(
+                        main_canvas.width,
+                        main_canvas.height
+                    );
+                },
+
+                //растягивает канву по всему окну
+                f_canvas_maximize: function() {
+                    'use strict';
+                    main_canvas.width = window.innerWidth;
+                    main_canvas.height = window.innerHeight;
+                },
+
+                //изменяет свойства полученного контекста рисования (всегда временно)
+                f_ctx_set_new: function(arr_02_brush_pen_width) {
+                    'use strict';
+                    main_ctx.fillStyle = arr_02_brush_pen_width[0];
+                    main_ctx.strokeStyle = arr_02_brush_pen_width[1];
+                    main_ctx.lineWidth = arr_02_brush_pen_width[2];
+                },
+
+                //устанавливает круглую стыковку
+                f_ctx_set_firstly: function() {
+                    'use strict';
+                    main_ctx.lineCap = 'round';
+                    main_ctx.lineJoin = 'round';
+                }
+
+            },
+
+            //примитивы рисования
+            PAINT: {
+                //рисует эллипс по центру и двум радиусам
+                f_ellipse_center: function(c, wh, sets_arr_02) {
+                    'use strict';
+                    //нулевой эллипс не рисуется (нулевого размера)
+                    if ((wh.y === 0) || (wh.x === 0)) {
+                        return;
+                    }
+
+                    main_ctx.save(); //сохрани старый стиль рисования
+                    DRAW.F.f_ctx_set_new(sets_arr_02); //измени стиль
+
+                    main_ctx.beginPath(); //начни рисовать заново
+
+                    //центр эллипса
+                    main_ctx.translate(c.x, c.y);
+                    //растяжение по х
+                    main_ctx.scale(wh.x / wh.y, 1);
+                    //полный круг, который растянется и сдвинется
+                    main_ctx.arc(0, 0, wh.y, 0, Math.PI * 2, true);
+
+                    main_ctx.fill(); //залей краской
+                    if (sets_arr_02[2] >= 1) {
+                        main_ctx.stroke(); //обведи контур
+                    }
+                    //восстанавливаем контекст
+                    main_ctx.restore();
+                },
+
+                //рисует эллипс по углам описанного прямоугольника
+                f_ellipse_area: function(area, sets_arr_02) {
+                    'use strict';
+                    DRAW.PAINT.f_ellipse_center(
+                        PAIR.MATH.f_center_of_area(area),
+                        //радиусы равны половинам размеров области
+                        PAIR.MATH.f_same_mult(PAIR.MATH.f_dxy(area), 0.5),
+                        sets_arr_02
+                    );
+                },
+
+                //любое тримино по центру, шагам, радиусам, номеру и настройкам контекста
+                f_trimino_any: function(c_00, step_xy, r_xy, fig_n05, sets_arr_02) {
+                    'use strict';
+                    var i, i_delta, i_center,
+                        trimino = STAT.C.ARR_TRIMINO[fig_n05]; //текущее тримино
+
+                    for (i = trimino.length - 1; i >= 0; i -= 1) {
+                        //сдвиг цетра текущего эллипса от нулевого элипса
+                        i_delta = PAIR.MATH.f_point_mult(trimino[i], step_xy);
+                        //координата центра рисуемого эллипса (абсолютная)
+                        i_center = PAIR.MATH.f_add(c_00, i_delta);
+                        DRAW.PAINT.f_ellipse_center(i_center, r_xy, sets_arr_02);
+                    }
+                },
+
+                //тримино внутри области
+                f_trimino_area: function(area, r_01, fig_n05, sets_arr_02) {
+                    'use strict';
+                    var c_00 = PAIR.MATH.f_center_of_area(area),
+                        //1/3 от размера внешнего квадрата при r_01 = 1
+                        sq_side_x = (area.b.x - area.a.x) / (r_01 + 2),
+                        sq_side_y = (area.b.y - area.a.y) / (r_01 + 2),
+                        //шаг (расстояние между центрами) для обоих направлений
+                        step_xy = PAIR.CREATE.f_xy(sq_side_x, sq_side_y),
+                        //радиус = 1/2 диаметра (квадрата) * долю от максимума (r_01)
+                        r_xy = PAIR.MATH.f_same_mult(step_xy, r_01 / 2);
+                    DRAW.PAINT.f_trimino_any(c_00, step_xy, r_xy, fig_n05, sets_arr_02);
+                },
+
+                //рисуй линию по 2 точкам
+                f_line: function(area, sets_arr_02) {
+                    'use strict';
+                    main_ctx.save();
+                    DRAW.F.f_ctx_set_new(sets_arr_02);
+
+                    main_ctx.beginPath();
+                    main_ctx.moveTo(area.a.x, area.a.y);
+                    main_ctx.lineTo(area.b.x, area.b.y);
+
+                    main_ctx.stroke();
+                    main_ctx.restore();
+                },
+
+                //рисуй прямоугольник по противоположным углам области
+                f_rect: function(area, sets_arr_02) {
+                    'use strict';
+                    main_ctx.save();
+                    DRAW.F.f_ctx_set_new(sets_arr_02);
+
+                    main_ctx.beginPath();
+
+                    var wh = PAIR.MATH.f_dxy(area);
+                    main_ctx.rect(area.a.x, area.a.y, wh.x, wh.y);
+
+                    main_ctx.fill();
+                    main_ctx.stroke();
+                    main_ctx.restore();
+                },
+
+                //очищает всё окно
+                f_cleaw_window_rect: function() {
+                    'use strict';
+                    var area = PAIR.CREATE.f_ab_00(DRAW.F.f_wh());
+                    DRAW.PAINT.f_rect(area, DRAW.CTX.back_ground);
+                },
+
+                //пишет одну строку в области
+                f_text: function(get_area, get_text) {
+                    'use strict';
+                    var cut_w = (get_area.b.x - get_area.a.x) * 0.03,
+                        cut_h = (get_area.b.y - get_area.a.y) * 0.15,
+                        area = PAIR.CUT.f_wh(get_area, cut_w, cut_h),
+
+                        wh = PAIR.MATH.f_dxy(area),
+                        text_center = PAIR.MATH.f_center_of_area(area),
+                        text_h = wh.y;
+
+                    //установи контекст для всего текста
+                    function set_text_context() {
+                        main_ctx.save();
+                        main_ctx.textAlign = "center";
+                        main_ctx.textBaseline = "middle";
+                        //весь текст пишем чёрным
+                        main_ctx.fillStyle = "rgba(0, 0, 0, 1)";
+                    }
+
+                    //установи высоту текста
+                    function set_text_h(get_text_h) {
+                        main_ctx.font = "bold " + get_text_h + "pt sans-serif";
+                    }
+
+                    //сравни ширину текста с шириной области (текск шире?)
+                    function compare_text(get_compare_text) {
+                        return (main_ctx.measureText(get_compare_text).width > wh.x);
+                    }
+
+                    set_text_context(); //контекст специально для текста
+
+                    //установи размер текста, не превосходящий ширины
+                    for (set_text_h(text_h); compare_text(get_text); text_h -= 1) {
+                        set_text_h(text_h);
+                    }
+
+                    main_ctx.fillText(get_text, text_center.x, text_center.y);
+
+                    main_ctx.restore();
+                },
+
+                //пишет строки текста без фона + из них 1 строка с фоном
+                f_text_arr: function(area, arr_text, line_n, line_n_rect_ctx) {
+                    'use strict';
+                    var i,
+                        n = arr_text.length,
+                        i_area = {};
+                    for (i = 0; i < n; i += 1) {
+                        //текущая строка
+                        i_area = PAIR.GRID.f_row_in_column(area, n, i);
+
+                        //эту строку надо выбрать
+                        if (i === line_n) {
+                            //подсети прямоугольником
+                            DRAW.PAINT.f_rect(i_area, line_n_rect_ctx);
+                        }
+
+                        //рисуй текст поверх фона
+                        DRAW.PAINT.f_text(i_area, arr_text[i]);
+                    }
+                }
+            }
+        };
+
+        //(05-06)
+
+        //области для кнопок и поля на сетке
+        var AREA = {
+            //все элементы в пикселях по размеру сетки ху (в шагах)
+            GRID: {
+                xy: {},
+                ab_total: {},
+                board: {},
+
+                new_fig: {},
+                help_f1: {},
+
+                score: {},
+                new_game: {},
+
+                game_mode: {},
+                copm_go: {},
+
+                move_back: {},
+                move_forward: {}
+            },
+
+            //на сколько пикселей надо обрезать
+            CUT: {
+                //обрезка каждого поля доски с каждого края
+                cell: 0,
+
+                //обрезка шашек игрока на поле
+                ball: 0,
+
+                //обрезка фигуры, показывающей возможный ход        
+                FIG_FREE: {
+                    area: 0, //обрезка зоны, куда она вписывается
+                    r_0_to_1: 0 //радиус (относительный) 
+                },
+
+                //обрезка выпавшей фигуры
+                FIG_NEW: {
+                    area: 0,
+                    r_0_to_1: 0
+                }
+            },
+
+            //получает клетку (и 2 функции с обрезкой клетки)
+            GET_CELL: {
+                //100% области клетки на доске в пикселях
+                f_100: function(x, y) {
+                    'use strict';
+                    //клетка на КВАДРАТНОМ поле
+                    return PAIR.GRID.f_cell(AREA.GRID.board, x, y, STAT.C.N);
+                },
+
+                //получает обрезанную область ячейки
+                f_cell: function(x, y) {
+                    'use strict';
+                    var temp_area = AREA.GET_CELL.f_100(x, y),
+                        temp_cut = AREA.CUT.cell;
+                    return PAIR.CUT.f_same(temp_area, temp_cut);
+                },
+
+                //получает обрезанную область мяча
+                f_ball: function(x, y) {
+                    'use strict';
+                    var temp_area = AREA.GET_CELL.f_100(x, y),
+                        temp_cut = AREA.CUT.ball;
+                    return PAIR.CUT.f_same(temp_area, temp_cut);
+                }
+            },
+
+            //настройка сетки и срезов
+            SET: {
+                //создай все объекты в GRID
+                f_grid: function(wh) {
+                    'use strict';
+                    var grid_hori = {
+                            xy: PAIR.CREATE.f_xy(6, 4), //общие размеры сетки
+                            board: PAIR.CREATE.f_ab_corner(0, 0, 4, 4),
+
+                            new_fig: PAIR.CREATE.f_ab_mono(4, 0),
+                            new_game: PAIR.CREATE.f_ab_corner(4, 1, 2, 1),
+                            score_all: PAIR.CREATE.f_ab_mono(5, 0),
+
+                            copm_go: PAIR.CREATE.f_ab_corner(4, 2, 2, 1),
+                            move_back: PAIR.CREATE.f_ab_mono(4, 3),
+                            move_forward: PAIR.CREATE.f_ab_mono(5, 3),
+
+                            //счёт числа шашек и режим игры только для полной версии
+                            score_1: PAIR.CREATE.f_ab_mono(1, 1), //шашек у синих
+                            score_2: PAIR.CREATE.f_ab_mono(1, 1), //шашек у красных
+                            //режимы игры: пасьянс, с другом, со слабой прогой, с сильной прогой
+                            game_mode: PAIR.CREATE.f_ab_mono(1, 1)
+                        },
+                        grid_vert = {
+                            xy: PAIR.CREATE.f_xy(4, 6), //общие размеры сетки
+                            board: PAIR.CREATE.f_ab_corner(0, 0, 4, 4),
+
+                            new_game: PAIR.CREATE.f_ab_corner(0, 4, 2, 1),
+                            new_fig: PAIR.CREATE.f_ab_mono(0, 5),
+                            score_all: PAIR.CREATE.f_ab_mono(1, 5),
+
+                            copm_go: PAIR.CREATE.f_ab_corner(2, 4, 2, 1),
+                            move_back: PAIR.CREATE.f_ab_mono(2, 5),
+                            move_forward: PAIR.CREATE.f_ab_mono(3, 5),
+
+                            //счёт числа шашек и режим игры только для полной версии
+                            score_1: PAIR.CREATE.f_ab_mono(1, 1), //шашек у синих
+                            score_2: PAIR.CREATE.f_ab_mono(1, 1), //шашек у красных
+                            //режимы игры: пасьянс, с другом, со слабой прогой, с сильной прогой
+                            game_mode: PAIR.CREATE.f_ab_mono(1, 1)
+                        },
+
+                        //зона с настройками области сетки
+                        grid_now = ((wh.x > wh.y) ? grid_hori : grid_vert),
+                        //размеры всей области по сетке (копия объекта)
+                        steps_xy = PAIR.CREATE.f_xy(grid_now.xy.x, grid_now.xy.y),
+                        //припиши 0,0 к размерам области по сетке
+                        steps_ab = PAIR.CREATE.f_ab_00(steps_xy),
+                        //зона из всех пикселей, начиная с точки (0,0)
+                        area_pixels = PAIR.CREATE.f_ab_00(wh);
+
+                    //зона в пикселях лишь по занимаемой области сетки
+                    function f_by_grid(steps_area) {
+                        return PAIR.GRID.f_area(area_pixels, steps_area, steps_xy);
+                    }
+
+                    AREA.GRID.xy = steps_xy; //размеры в шагах
+                    AREA.GRID.ab_total = f_by_grid(steps_ab); //окно в пикселях от (0,0)
+                    AREA.GRID.board = f_by_grid(grid_now.board); //доска
+
+                    AREA.GRID.score_1 = f_by_grid(grid_now.score_1); //запас первого
+                    AREA.GRID.score_2 = f_by_grid(grid_now.score_2); //запас второго
+                    AREA.GRID.score_all = f_by_grid(grid_now.score_all); //счёт числа ходов
+
+                    AREA.GRID.new_fig = f_by_grid(grid_now.new_fig); //новая фигура
+                    AREA.GRID.new_game = f_by_grid(grid_now.new_game); //новая игра
+
+                    AREA.GRID.copm_go = f_by_grid(grid_now.copm_go); //комп, ходи!
+                    AREA.GRID.move_back = f_by_grid(grid_now.move_back); //ход назад
+                    AREA.GRID.move_forward = f_by_grid(grid_now.move_forward); //вперёд
+                    AREA.GRID.game_mode = f_by_grid(grid_now.game_mode); //за кого комп     
+                },
+
+                //настрой пиксельные области элементов и срезание фигур
+                f_cut_and_grid: function(wh) {
+                    'use strict';
+                    AREA.SET.f_grid(wh); //сначала создай все элементы
+
+                    var cell_00 = AREA.GET_CELL.f_100(0, 0),
+                        cell_min_size = PAIR.MATH.f_dxy_min(cell_00),
+
+                        new_fig_zone = AREA.GRID.new_fig,
+                        zone_min_size = PAIR.MATH.f_dxy_min(new_fig_zone);
+
+                    AREA.CUT.cell = cell_min_size * 0.04;
+                    AREA.CUT.ball = cell_min_size * 0.15;
+
+                    //доступные ходы (тримино на легальных полях)
+                    AREA.CUT.FIG_FREE.area = cell_min_size * 0.3;
+                    //радиус: 100% - это вплотную, 0% - точка
+                    AREA.CUT.FIG_FREE.r_0_to_1 = 0.7;
+
+                    //новая фигура тримино
+                    AREA.CUT.FIG_NEW.area = zone_min_size * 0.2;
+                    AREA.CUT.FIG_NEW.r_0_to_1 = 0.7;
+                }
+            }
+        };
+
+        //(06-07)
+
+        //вычисление объекта настроек для анимации
+        var PRESS = {
+            //возвращает поле, заполненное одним значением (x: 1, y: 1)
+            f_xy_11: function() {
+                'use strict';
+                var i, out_arr = [];
+
+                out_arr.length = STAT.C.SQ;
+
+                for (i = 0; i < STAT.C.SQ; i += 1) {
+                    out_arr[i] = PAIR.CREATE.f_xy(1, 1);
+                }
+
+                return out_arr;
+            },
+
+            //из булева сжатия  ху (сжать или нет) делай пару чисел (на столько ху) 
+            f_bool_to_xy: function(bool_board, press_01) {
+                'use strict';
+                var i, out_arr = [];
+
+                out_arr.length = STAT.C.SQ;
+
+                for (i = 0; i < STAT.C.SQ; i += 1) {
+                    out_arr[i] = PAIR.CREATE.f_xy(
+                        bool_board[i].x ? press_01 : 1,
+                        bool_board[i].y ? press_01 : 1
+                    );
+                }
+
+                return (out_arr);
+            },
+
+            //БУЛЕВО сжатия ПО РЯДАМ (из поля с поставленной фигурой)
+            f_food_rows: function(board_plus_fig) {
+                'use strict';
+                var ix, iy, out_arr = [],
+                    rows = RULE.CELL.f_rows(board_plus_fig);
+
+                out_arr.length = STAT.C.SQ; //длина итогового массива
+
+                for (ix = 0; ix < STAT.C.N; ix += 1) {
+                    for (iy = 0; iy < STAT.C.N; iy += 1) {
+                        RULE.CELL.f_set( //установи в наш массив
+                            out_arr,
+                            ix,
+                            iy,
+                            PAIR.CREATE.f_xy( //булевы значение сжатия
+                                rows.vert[ix],
+                                rows.hori[iy]
+                            )
+                        );
+                    }
+                }
+
+                return (out_arr);
+            },
+
+            //несовпадающие ячейки (YES,YES), совпадающие (NO,NO)
+            f_bool_difference: function(board_a, board_b) {
+                'use strict';
+                var i, is_same, out_arr = [];
+
+                out_arr.length = STAT.C.SQ;
+
+                for (i = 0; i < STAT.C.SQ; i += 1) {
+                    is_same = (board_a[i] === board_b[i]); //ячейки равны
+                    out_arr[i] = is_same ? STAT.C.P_NO_NO : STAT.C.P_YES_YES;
+                }
+
+                return out_arr;
+            },
+
+            //возвращает поле со сжатыми 3 клетками с тримино из данного хода
+            f_trimino: function(m) {
+                'use strict';
+                var i, ix, iy,
+                    out_arr = [], //изначально всё разжато
+                    t = STAT.C.ARR_TRIMINO[m.n_fig]; //сама фигура тримино
+
+                out_arr.length = STAT.C.SQ; //длина массива = число клеток поля
+
+                for (i = 0; i < STAT.C.SQ; i += 1) {
+                    out_arr[i] = STAT.C.P_NO_NO; //не сжимать (ложь, ложь)
+                }
+
+                //пройди все сжимаемые клетки тримино
+                for (i = t.length - 1; i >= 0; i -= 1) {
+                    ix = m.n_x + t[i].x;
+                    iy = m.n_y + t[i].y;
+                    //булев значение (истина, истина: тримино сжимать равномерно)
+                    RULE.CELL.f_set(out_arr, ix, iy, STAT.C.P_YES_YES);
+                }
+
+                return out_arr;
+            }
+        };
+
+        //(07-08)
+
+        //показ игровой ситуации (примитивы)
+        var SHOW = {
+            //отрисовка одного хода (компьютера) или всех доступных ходов
+            MOVE: {
+                //показывай 1 ход
+                f_one_move: function(get_who, m) {
+                    'use strict';
+                    //область для тримино
+                    var area_trimino = PAIR.CUT.f_same(
+                        AREA.GET_CELL.f_cell(m.n_x, m.n_y),
+                        AREA.CUT.FIG_FREE.area
+                    );
+
+                    //рисуй само тримино в области
+                    DRAW.PAINT.f_trimino_area(
+                        area_trimino,
+                        AREA.CUT.FIG_FREE.r_0_to_1,
+                        m.n_fig,
+                        DRAW.CTX.ARR.moves[get_who]
+                    );
+                },
+
+                f_one_last_move: function(get_who, m) {
+                    'use strict';
+                    var i, i_area,
+                        fig = STAT.C.ARR_TRIMINO[m.n_fig];
+                    for (i = 0; i < fig.length; i += 1) {
+                        i_area = AREA.GET_CELL.f_cell(fig[i].x + m.n_x, fig[i].y + m.n_y);
+                        DRAW.PAINT.f_rect(i_area, DRAW.CTX.ARR.move_last[get_who]);
+                    }
+                },
+
+                //подсвети ход в позицию с номером n при нумерации от нуля
+                f_one_last_move_by_game: function(GAME, n) {
+                    'use strict';
+                    var best_move = RULE.MOVE.from_game_arr_get_last(GAME.ARR, n),
+                        who = RULE.WHO.f_opponent(RULE.WHO.f_who_by_n(n));
+                    SHOW.MOVE.f_one_last_move(who, best_move);
+                },
+
+                //покажи доступные ходы
+                f_free_moves_by_game: function(get_game) {
+                    'use strict';
+                    var n = get_game.move_number,
+                        get_board = get_game.ARR[n].board,
+                        get_fig = get_game.ARR[n].fig,
+                        get_who = RULE.WHO.f_who_by_n(n),
+
+                        legal_cells = RULE.BOARD.f_legal_cells(get_board, get_fig, get_who),
+                        ix,
+                        iy;
+
+                    //пройдись по всем строкам и столбцам
+                    for (ix = 0; ix < STAT.C.N; ix += 1) {
+                        for (iy = 0; iy < STAT.C.N; iy += 1) {
+                            //ход на эту ячейку возможен
+                            if (RULE.CELL.f_get(legal_cells, ix, iy)) {
+                                SHOW.MOVE.f_one_move(get_who, RULE.MOVE.f_create(ix, iy, get_fig));
+                            }
+                        }
+                    }
+                }
+            },
+
+            //перерисовка клеток и всей доски по матрице сжатий
+            CELL: {
+                //покажи пустую ячейку
+                f_empty: function(ix, iy) {
+                    'use strict';
+                    DRAW.PAINT.f_rect(AREA.GET_CELL.f_cell(ix, iy), DRAW.CTX.BOARD.cells);
+                },
+
+                //покажи одну сжатую шашку на доске (она точно есть)
+                f_not_empty: function(x, y, press_xy) {
+                    'use strict';
+                    var ball_area = AREA.GET_CELL.f_ball(x, y),
+                        sets_arr_2 = DRAW.CTX.BOARD.ball;
+                    //шашка - это эллипс
+                    DRAW.PAINT.f_ellipse_area(
+                        //эллипс в удаляемых рядах надо сжать
+                        PAIR.CUT.f_cut_part_wh(ball_area, press_xy),
+                        sets_arr_2
+                    );
+                },
+
+                //перерисуй одну ячейку
+                f_redraw: function(x, y, cell_value, press_xy) {
+                    'use strict';
+                    SHOW.CELL.f_empty(x, y);
+                    if (cell_value) {
+                        SHOW.CELL.f_not_empty(x, y, press_xy);
+                    }
+                },
+
+                //покажи всё поле по матрице значений сжатия (по умолчанию везде (1,1))
+                f_grid_by_matrix: function(board, optional_press_matrix) {
+                    'use strict';
+                    var ix, iy;
+
+                    if (optional_press_matrix === undefined) {
+                        optional_press_matrix = PRESS.f_xy_11();
+                    }
+
+                    //показывай все шашки на доске
+                    for (ix = 0; ix < STAT.C.N; ix += 1) {
+                        for (iy = 0; iy < STAT.C.N; iy += 1) {
+                            SHOW.CELL.f_redraw(
+                                ix,
+                                iy,
+                                RULE.CELL.f_get(board, ix, iy),
+                                RULE.CELL.f_get(optional_press_matrix, ix, iy)
+                            );
+                        }
+                    }
+                }
+            },
+
+            //тримино на панели и всё, кроме доски
+            PANEL: {
+                //покажи новое тримино
+                f_new_trimino: function(get_fig, who) {
+                    'use strict';
+                    var zone = AREA.GRID.new_fig,
+                        r_0_1 = AREA.CUT.FIG_NEW.r_0_to_1,
+                        sets_arr_2 = DRAW.CTX.ARR.new_fig[who];
+                    //на столько обрезаем зону для тримино
+                    zone = PAIR.CUT.f_same(zone, AREA.CUT.FIG_NEW.area);
+                    //рисуем тримино с такой обрезкой радиусов
+                    DRAW.PAINT.f_trimino_area(zone, r_0_1, get_fig, sets_arr_2);
+                },
+
+                //рисуй текст с прямоугольником, по умолчанию цвет панели
+                f_out: function(area, get_text, ctx_default) {
+                    'use strict';
+                    ctx_default = ((ctx_default === undefined) ? DRAW.CTX.PANEL.grid : ctx_default);
+                    DRAW.PAINT.f_rect(area, ctx_default);
+                    DRAW.PAINT.f_text(area, get_text);
+                },
+
+                f_only_score: function(get_game_mode, store_012) {
+                    'use strict';
+                    if (get_game_mode === 0) { //режим пасьянса: покажи номер хода
+                        SHOW.PANEL.f_out(AREA.GRID.score_all, store_012[0]); //контекст по умолчанию
+                    } else { //во время дуэли показывай счёт
+                        SHOW.PANEL.f_out(AREA.GRID.score_1, store_012[1], DRAW.CTX.ARR.score[1]);
+                        SHOW.PANEL.f_out(AREA.GRID.score_2, store_012[2], DRAW.CTX.ARR.score[2]);
+                    }
+                },
+
+                //покажи элементы управления без тримино но  со счётом
+                f_elements_no_trimino: function(get_game_mode, store_012) {
+                    'use strict';
+                    /*
+                    //закрась прямоугольник со всеми режимами игры
+                    DRAW.PAINT.f_rect(AREA.GRID.game_mode, DRAW.CTX.PANEL.grid);
+                    //выдели выбранный режим игры
+                    DRAW.PAINT.f_text_arr(
+                        AREA.GRID.game_mode,
+                        STAT.TEXTS.str_arr_game_mode,
+                        get_game_mode,
+                        DRAW.CTX.PANEL.selected_game_mode
+                    );
+                    */
+
+                    SHOW.PANEL.f_out(AREA.GRID.copm_go, STAT.TEXTS.str_comp_go);
+                    SHOW.PANEL.f_out(AREA.GRID.move_back, STAT.TEXTS.str_move_back);
+                    SHOW.PANEL.f_out(AREA.GRID.move_forward, STAT.TEXTS.str_move_forward);
+                    SHOW.PANEL.f_out(AREA.GRID.new_fig, STAT.TEXTS.str_new_fig);
+                    SHOW.PANEL.f_out(AREA.GRID.new_game, STAT.TEXTS.str_new_game);
+
+
+                    SHOW.PANEL.f_only_score(get_game_mode, store_012);
+                },
+
+                //счёт ходов и счёт каждого игрока для вывода, НЕ сделан 0 или 1 ход
+                f_calculate_score_text_arr: function(GAME, amount_not_done) {
+                    'use strict';
+                    var //запасы обоих игроков, счёт с начального запаса (константа)
+                        i_store_arr = [
+                            STAT.TEXTS.str_score_move + (GAME.move_number + 1),
+                            STAT.C.STORE,
+                            STAT.C.STORE
+                        ],
+                        i;
+                    //как в течение партии менялся запас игроков
+                    for (i = 0; i < (GAME.move_number - amount_not_done); i += 1) {
+                        //номера игроков 1..2, прибавь еду (или вычти 3)
+                        i_store_arr[RULE.WHO.f_who_by_n(i)] += RULE.BOARD.f_food_amount_ab(
+                            GAME.ARR[i].board,
+                            GAME.ARR[i + 1].board
+                        );
+                    }
+
+                    return (i_store_arr.slice());
+                },
+
+                //покажи элементы управления с новым тримино
+                f_elements_with_new_trimino: function(GAME) {
+                    'use strict';
+                    SHOW.PANEL.f_elements_no_trimino(
+                        GAME.mode,
+                        SHOW.PANEL.f_calculate_score_text_arr(GAME, 0)
+                    );
+                    SHOW.PANEL.f_new_trimino(
+                        GAME.ARR[GAME.move_number].fig,
+                        RULE.WHO.f_who_by_n(GAME.move_number)
+                    );
+                },
+
+                //измени размеры доски без перерисовки доски (с перерисовкой панелей)
+                f_window_resize: function(GAME) {
+                    'use strict';
+                    //растягиваем канву по всей форме
+                    DRAW.F.f_canvas_maximize();
+                    //устанавливаем в соответствии с размерами канвы срезы и ибласти
+                    AREA.SET.f_cut_and_grid(DRAW.F.f_wh());
+                    //устанавливаем начальные контексты рисования
+                    DRAW.F.f_ctx_set_firstly();
+
+                    SHOW.PANEL.f_elements_with_new_trimino(GAME);
+                }
+            }
+        };
+
+        //(08-09)
+
+        var ANIMATE = {
+            //вспомогательные объекты для расчёта анимации
+            CALC: {
+                //верни объект с 3 досками (процесс) + ход + кто играет
+                f_3_boards: function(board_from, board_to, fig, who) {
+                    'use strict';
+                    var m = RULE.MOVE.f_from_a_to_b(board_from, board_to, fig),
+                        b = RULE.MOVE.f_with_trimino(board_from, m),
+                        n_12 = (RULE.IS.f_same_boards(b, board_to) ? 1 : 2),
+                        abc = []; //массив из 1 или 2 пар досок 
+
+                    abc.push([board_from, b]); //тримино ставится всегда
+                    if (n_12 === 2) { //если есть взятие, то анимируй также удаление рядов
+                        abc.push([b, board_to]);
+                    }
+
+                    return {
+                        steps: abc, //массив: начало -> тримино, (если взятие тримино -> ряды)
+                        n12: n_12, //сколько шагов: 1 или 2 (со взятием)
+                        a: board_from,
+                        b: b,
+                        c: board_to,
+                        m: m,
+                        who: who
+                    };
+                }
+            },
+
+            ANIM: {
+                //покажи тримино и доступные ходы после анимации
+                f_elements_trimino_and_free_moves: function(GAME) {
+                    'use strict';
+                    SHOW.PANEL.f_elements_with_new_trimino(GAME);
+                    SHOW.MOVE.f_free_moves_by_game(GAME);
+                },
+
+                //анимация с таймером, число частей всех ходов, где 1 или 2 последних хода
+                f_animate_calculated: function(GAME, STEPS, n_sub_steps, n_steps) {
+                    'use strict';
+                    //debugger;
+                    var i, i_move, i_step, STEP_NOW,
+                        board_a, board_b,
+                        press_bool, press_real,
+                        time_start = window.performance.now(),
+
+                        my_interval = window.setInterval( //таймер
+                            function() {
+                                var time_now = window.performance.now() - time_start,
+                                    //время, измеренное числом интервалов (нецелое)
+                                    time_real = time_now / STAT.TIME.move,
+                                    //целая часть времени (номер интервала от 0)
+                                    time_n = Math.floor(time_real),
+                                    //дробная часть времени
+                                    time_01 = time_real - time_n,
+                                    //сколько шашек у игроков
+                                    score_now = [];
+
+                                //конец анимации: последий подшаг
+                                if ((time_n + 1) > n_sub_steps) {
+                                    //покажи законченную доску
+                                    SHOW.CELL.f_grid_by_matrix(STEPS[n_steps - 1].c, undefined);
+
+                                    //самый последний ход в игре на текущий момент
+                                    STEP_NOW = STEPS[STEPS.length - 1];
+                                    SHOW.MOVE.f_one_last_move(STEP_NOW.who, STEP_NOW.m);
+
+                                    //покажи панель          
+                                    SHOW.PANEL.f_elements_with_new_trimino(GAME);
+
+                                    //доступные ходы после анимации
+                                    SHOW.MOVE.f_free_moves_by_game(GAME);
+
+                                    window.clearInterval(my_interval);
+                                    return;
+                                }
+
+                                i_move = 0;
+                                i_step = 0;
+                                //повторяй time_n раз
+                                for (i = 1; i <= time_n; i += 1) {
+                                    //i_step ноль, n12 два шага, то (есть есть взятие)
+                                    if ((i_step === 0) && (STEPS[i_move].n12 === 2)) {
+                                        i_step += 1;
+                                    } else {
+                                        i_step = 0;
+                                        i_move += 1;
+                                    }
+                                }
+
+                                STEP_NOW = STEPS[i_move];
+
+                                board_a = STEP_NOW.steps[i_step][0];
+                                board_b = STEP_NOW.steps[i_step][1];
+
+                                if (i_step === 0) { //тихий ход для анимации
+                                    press_bool = PRESS.f_bool_difference(board_a, board_b);
+                                    press_real = PRESS.f_bool_to_xy(press_bool, time_01);
+                                    SHOW.CELL.f_grid_by_matrix(board_b, press_real);
+                                } else { //взятие для анимации
+                                    press_bool = PRESS.f_food_rows(board_a);
+                                    press_real = PRESS.f_bool_to_xy(press_bool, 1 - time_01);
+                                    SHOW.CELL.f_grid_by_matrix(board_a, press_real);
+                                }
+
+                                SHOW.MOVE.f_one_last_move(STEP_NOW.who, STEP_NOW.m);
+
+                                //текущий счёт с последним ходом или без него
+                                score_now = SHOW.PANEL.f_calculate_score_text_arr(
+                                    GAME,
+                                    (((i_move === 0) && (GAME.mode >= 2)) ? 1 : 0)
+                                );
+
+                                SHOW.PANEL.f_only_score(GAME.mode, score_now);
+
+                            },
+                            STAT.TIME.step
+                        );
+                },
+
+                //в данной игре анимируй столько последних ходов (n = 1..2)
+                f_total: function(GAME, n) {
+                    'use strict';
+                    var i_loop, i,
+                        steps_total = 0,
+                        all_moves = [];
+
+                    for (i_loop = n; i_loop > 0; i_loop -= 1) {
+                        i = GAME.move_number - i_loop;
+                        all_moves.push(ANIMATE.CALC.f_3_boards(
+                            GAME.ARR[i].board, //предыдущая позиция
+                            GAME.ARR[i + 1].board, //текущая позиция
+                            GAME.ARR[i].fig, //фигура между двумя позициями
+                            RULE.WHO.f_who_by_n(i) //кто делает ход
+                        ));
+                        i = all_moves.length - 1; //номер последнего хода
+                        steps_total += all_moves[i].n12; //столько всего подшагов 
+                    }
+                    ANIMATE.ANIM.f_animate_calculated(GAME, all_moves, steps_total, n);
+                }
+            }
+        };
+
+        //(09-10)
+
+        var EVENT = {
+            //массив позиций, фигур + режим игры и номер хода + интервал задержки
+            GAME: {
+                //массив досок и массив выпадающих фигур
+                ARR: [],
+
+                //режим игры: 0 - пасьянс, 1 - с другом, 2,3 - с компьютером
+                mode: 0,
+
+                //номер хода (начиная с нуля) = число показанных позиций
+                move_number: 0
+            },
+
+            //вспомогательные функции без работы с мышью
+            FUNC: {
+                //установи пустую начальную позицию (для новой игры)
+                f_set_start_position: function() {
+                    'use strict';
+                    EVENT.GAME.move_number = 0;
+                    EVENT.GAME.ARR = [];
+                    EVENT.GAME.ARR.push(AI.COMBO.f_game_record_empty());
+                },
+
+                //перерисуй текущую ситуацию под размер окна
+                f_resize_and_renew: function() {
+                    'use strict';
+                    SHOW.PANEL.f_window_resize(EVENT.GAME);
+
+                    var board_now = EVENT.GAME.ARR[EVENT.GAME.move_number].board.slice();
+                    //полнстью законченная анимация
+                    SHOW.CELL.f_grid_by_matrix(board_now);
+
+                    ANIMATE.ANIM.f_elements_trimino_and_free_moves(EVENT.GAME);
+                },
+
+                //установи начальную позицию и перерисуй по размерам окна
+                f_start_and_resize: function() {
+                    'use strict';
+                    EVENT.FUNC.f_set_start_position();
+                    EVENT.FUNC.f_resize_and_renew();
+                },
+
+                //делает полученный ход, удлинняя массивы и увиличивая счётчик
+                f_play_board: function(new_board) {
+                    'use strict';
+                    EVENT.GAME.ARR.push(AI.COMBO.f_game_record_create(
+                        new_board.slice(),
+                        RULE.RANDOM.f_random_by_mode(new_board, EVENT.GAME.mode)
+                    ));
+                    EVENT.GAME.move_number += 1;
+                },
+
+                f_play_comp: function() {
+                    'use strict';
+                    var LAST, game_over, best_board,
+                        n = EVENT.GAME.move_number; //для сокращения записи
+
+                    //после сыгранности получи копию
+                    LAST = EVENT.GAME.ARR[n];
+
+                    game_over = RULE.IS.f_game_over_mode(LAST.board, LAST.fig, EVENT.GAME.mode);
+                    if (game_over) {
+                        return;
+                    } //конец игры, ничего не делай
+
+                    //СТЕРЕТЬ все ходы после максимального, исключив ошибки перемотки
+                    if (EVENT.GAME.ARR.length > (n + 1)) {
+                        EVENT.GAME.ARR.length = n + 1;
+                    }
+                    //лишние следующие ходы отброшены и затираются ходом компьютера
+                    LAST = EVENT.GAME.ARR[n];
+
+                    best_board = AI.BEST.f_mode(LAST.board, LAST.fig, EVENT.GAME.mode);
+                    //сыграй новую позицию
+                    EVENT.FUNC.f_play_board(best_board.slice());
+
+                    //покажи новую позицию (лучшую по мнению компьютера)            
+                    SHOW.CELL.f_grid_by_matrix(best_board);
+
+                    //последний ход для подсветки (один ход сыграл компьютер)
+                    SHOW.MOVE.f_one_last_move_by_game(EVENT.GAME, n + 1);
+                    ANIMATE.ANIM.f_elements_trimino_and_free_moves(EVENT.GAME);
+                }
+            },
+
+            //анимация и вспомогательные функции для обработки мыши
+            OUT: {
+                //нажата ячейка с данными координатами
+                f_pressed: function(nx, ny) {
+                    'use strict';
+                    var game_over, new_board,
+                        LAST = EVENT.GAME.ARR[EVENT.GAME.move_number],
+                        m = RULE.MOVE.f_create(nx, ny, LAST.fig);
+
+                    //ход невозможен, ничего не делай
+                    if (!RULE.IS.f_move_legal(LAST.board, m.n_x, m.n_y, m.n_fig)) {
+                        return;
+                    }
+
+                    //СТЕРЕТЬ все ходы после максимального, исключив ошибки перемотки
+                    if (EVENT.GAME.ARR.length > (EVENT.GAME.move_number + 1)) {
+                        EVENT.GAME.ARR.length = EVENT.GAME.move_number + 1;
+                    }
+
+                    //сделан ход из последней позиции
+                    new_board = RULE.MOVE.f_return_copy(LAST.board.slice(), m);
+
+                    //сыграй новую позицию
+                    EVENT.FUNC.f_play_board(new_board.slice());
+
+                    //после сыгранности получи копию
+                    LAST = EVENT.GAME.ARR[EVENT.GAME.move_number];
+
+                    //работай с концом игры
+                    game_over = RULE.IS.f_game_over_total(LAST.board);
+
+                    //ходит компьютер и игра не закончена
+                    if ((EVENT.GAME.mode >= 2) && !game_over) {
+                        new_board = AI.BEST.f_mode(LAST.board, LAST.fig, EVENT.GAME.mode);
+                        EVENT.FUNC.f_play_board(new_board.slice());
+                        ANIMATE.ANIM.f_total(EVENT.GAME, 2); //анимируй 2 хода
+                    } else {
+                        ANIMATE.ANIM.f_total(EVENT.GAME, 1);
+                    }
+                },
+
+                //установи режим игры от 0 до 3
+                f_set_mode_03: function(n_03) {
+                    'use strict';
+                    //надо перебросить кубик
+                    function need_roll_dice_again(last) {
+                        var was_solitaire = (EVENT.GAME.mode === 0), //был пасьянс
+
+                            //этой фигуры нет...
+                            no_this_fig = RULE.IS.f_game_over_fig(last.board, last.fig),
+                            //но есть другая фигура
+                            is_smth_fig = !RULE.IS.f_game_over_total(last.board);
+
+                        return (was_solitaire && no_this_fig && is_smth_fig);
+                    }
+
+                    if (EVENT.GAME.mode === n_03) {
+                        return; //ничего не изменилось: тот же режим игры
+                    }
+
+                    //надо перебросить кубик
+                    var last = EVENT.GAME.ARR[EVENT.GAME.move_number];
+                    if (need_roll_dice_again(last)) {
+                        EVENT.GAME.ARR[EVENT.GAME.move_number].fig =
+                            RULE.RANDOM.f_legal_fig(last.board);
+                    }
+
+                    EVENT.GAME.mode = n_03; //новый режим игры
+                    ANIMATE.ANIM.f_elements_trimino_and_free_moves(EVENT.GAME);
+                }
+            },
+
+            //событие - основная функция обработки щелчка мыши (координаты х,у)
+            f_main_click: function(x, y) {
+                'use strict';
+                var ix, iy, i,
+                    arr_areas = [
+                        //ход назад, ход вперёд, новая игра
+                        AREA.GRID.move_back,
+                        AREA.GRID.move_forward,
+                        AREA.GRID.new_game,
+                        //вынуди ход компа
+                        AREA.GRID.copm_go
+                    ],
+                    arr_functions = [
+                        //на панели нажата кнопка "ХОД НАЗАД"
+                        function() {
+                            var n = EVENT.GAME.move_number; //для сокращения записи
+                            if (n > 0) {
+                                EVENT.GAME.move_number -= 1;
+                                EVENT.FUNC.f_resize_and_renew();
+                                if (n > 1) {
+                                    SHOW.MOVE.f_one_last_move_by_game(EVENT.GAME, n - 1);
+                                }
+                            }
+                        },
+                        //на панели нажата кнопка "ХОД ВПЕРЁД"
+                        function() {
+                            var n = EVENT.GAME.move_number; //для сокращения записи
+                            if (n < (EVENT.GAME.ARR.length - 1)) {
+                                EVENT.GAME.move_number += 1;
+                                EVENT.FUNC.f_resize_and_renew();
+                                SHOW.MOVE.f_one_last_move_by_game(EVENT.GAME, n + 1);
+                            }
+                        },
+                        //на панели нажата кнопка "НОВАЯ ИГРА"
+                        function() {
+                            EVENT.FUNC.f_start_and_resize();
+                        },
+                        //на панели нажата кнопка, вынуждающая ход компа "ходи"
+                        function() {
+                            EVENT.FUNC.f_play_comp();
+                        }
+                    ];
+
+                for (ix = 0; ix < STAT.C.N; ix += 1) {
+                    for (iy = 0; iy < STAT.C.N; iy += 1) {
+                        if (PAIR.BELONG.f_ab(AREA.GET_CELL.f_100(ix, iy), x, y)) {
+                            EVENT.OUT.f_pressed(ix, iy);
+                            return;
+                        }
+                    }
+                }
+
+                for (i = 0; i < arr_areas.length; i += 1) {
+                    if (PAIR.BELONG.f_ab(arr_areas[i], x, y)) {
+                        arr_functions[i]();
+                        return;
+                    }
+                }
+            },
+
+            //установи все события по привязке к главному холсту
+            f_set_all_events: function() {
+                'use strict';
+                EVENT.FUNC.f_start_and_resize();
+
+                //изменение размеров окна, или смена ориентации экрана
+                window.onresize = function() {
+                    EVENT.FUNC.f_resize_and_renew();
+                };
+
+                //щелчок мышью на канву
+                main_canvas.onclick = function(e) {
+                    EVENT.f_main_click(e.clientX, e.clientY);
+                };
+            }
+        };
+
+        //(10-11)
+
+        EVENT.f_set_all_events();
+
+    </script>
 
 </body>
 
